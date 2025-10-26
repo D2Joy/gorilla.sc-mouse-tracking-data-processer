@@ -9,7 +9,7 @@
   library(Rmisc)
 }
 
-###slice raw data to x ms
+###slice raw data according to interval
 Slice.by<-function(filepath, interval){
   
   center_coor <-readxl::read_xlsx(filepath, sheet = "data") %>% 
@@ -29,7 +29,6 @@ Slice.by<-function(filepath, interval){
   .nslice<-ceiling((center_coor$time_stamp[nrow(center_coor)]-center_coor$time_stamp[1])/interval)
   sliced_coor<-vector("list", length = (.nslice+1))
   sliced_coor[[1]]<-data.table(participant.id=center_coor$participant_id[1],
-                              
                                spreadsheet_row=center_coor$spreadsheet_row[1],
                                timeslice=0,x.center=center_coor[type=='mouse']$x_normalised[1],
                                y.center=center_coor[type=='mouse']$y_normalised[1])
@@ -41,7 +40,7 @@ Slice.by<-function(filepath, interval){
     temp$rows<-which(center_coor$time_stamp<=temp$timeEnd &
                        center_coor$time_stamp>(temp$timeEnd-interval))
 
-    
+    ###recover coordinates using a weighted interpolation method
     if(length(temp$rows)>=1){#if points exist in current slice
       #if not the first in a trial, take the point from the last slice at the first, and * first duration
       if(temp$rows[1]==1) temp$rows<- temp$rows[-1] 
@@ -54,7 +53,6 @@ Slice.by<-function(filepath, interval){
       temp$y %+=% Reduce("+",center_coor$center_y[temp$rows]*diff(center_coor$time_stamp[temp$rows]%>%c(temp$timeEnd)))
       
       sliced_coor[[i+1]] = data.table(participant.id=center_coor$participant_id[1],
-                                      
                                       spreadsheet_row=center_coor$spreadsheet_row[1],
                                       timeslice=i*interval,x.center=temp$x/interval,y.center=temp$y/interval
       )
@@ -62,11 +60,11 @@ Slice.by<-function(filepath, interval){
       sliced_coor[[i+1]] = sliced_coor[[i]]
     }
     
-  }#for end
+  }#for end, combine into a data table and fix `timeslice`
   sliced_coor%<>%rbindlist()
   sliced_coor[, timeslice:= ..interval*(.I-1)]
   
-  
+  ###generate common metrics
   sliced_coor[,
               `:=`(distance = ifelse(seq_len(.N)==1, 0, sqrt((x.center-lag(x.center))^2+(y.center-lag(y.center))^2)), 
                    x_velocity = ifelse(seq_len(.N)==1, 0, (x.center-lag(x.center))/interval), 
@@ -76,30 +74,6 @@ Slice.by<-function(filepath, interval){
          ifmovement = ifelse(seq_len(.N)>1 & distance>Rmisc::CI(distance,ci=0.95)[3], 1, 0)
     )]
   
-
   return(sliced_coor)
 }
 
-
-
-###example code with parallel processing
-filepaths <- list.files(#trajectory data files
-  paste0(getwd(),"/uploads"),
-  pattern = "*.xlsx",
-  full.names = TRUE
-)
-
-progress <- function(n) setTxtProgressBar(txtProgressBar(max = length(filepaths), style = 3), n)
-
-registerDoSNOW(.cl<-makeCluster(9))
-
-system.time(merged_slice<-foreach (i = 1:length(filepaths),.combine=rbind,.verbose = F,
-                                   .packages = c("dplyr",'data.table','roperators'), 
-                                   .options.snow = list(progress = progress))%dopar%{
-                                     
-                                     filepath<-filepaths[i]
-
-                                     sliced_coor<-Slice.by(filepath,interval<-100)
-                                     
-                                     return(sliced_coor)
-                                   })
