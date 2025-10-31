@@ -9,7 +9,7 @@
   library(Rmisc)
 }
 
-###slice raw data according to interval
+###key function to standardize raw data according to interval
 Slice.by<-function(filepath, interval){
   
   center_coor <-readxl::read_xlsx(filepath, sheet = "data") %>% 
@@ -77,3 +77,28 @@ Slice.by<-function(filepath, interval){
   return(sliced_coor)
 }
 
+###if needed, right align mouse movement data (for certain analysis see Dr Mirman's <<Growth Curve Analysis and Visualization Using R>>)
+AlignR<-function(merged_slice,setMax){
+  tlist<-vector("list", length = length(unique(merged_slice$spreadsheet_row)))
+  .maxSlice<-max(merged_slice$timeslice)/100
+  .maxSlice<-min(setMax,.maxSlice)
+  
+  system.time(merged_slice_R<-foreach (ssrow = sort(unique(merged_slice$spreadsheet_row)),.export=c('timeslice'),
+                                       .packages = c("doSNOW",'data.table'),.verbose = T)%dopar%{#, .errorhandling="pass".combine=rbind,
+                                         foreach(id = unique(merged_slice$participant.id))%do%{
+                                           if(!any(merged_slice[participant.id==id]$spreadsheet_row==ssrow)) return()
+                                           
+                                           selected<-merged_slice[merged_slice$participant.id==id&
+                                                                    merged_slice$spreadsheet_row==ssrow,]
+                                           if(nrow(selected)<.maxSlice){
+                                             selected<-rbind(selected, selected[rep(nrow(selected), .maxSlice+1-nrow(selected)), ],make.row.names=F)
+                                             
+                                             selected$timeslice<-as.numeric(rownames(selected))*timeslice-timeslice
+                                           }
+                                           
+                                           return(selected[0:.maxSlice+1])
+                                         }})
+  merged_slice_R<-unlist(merged_slice_R, recursive = F)
+  merged_slice_R<-do.call('rbind',merged_slice_R)
+  return(merged_slice_R)
+}
