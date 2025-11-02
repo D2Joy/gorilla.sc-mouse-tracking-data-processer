@@ -102,3 +102,25 @@ AlignR<-function(merged_slice,setMax){
   merged_slice_R<-do.call('rbind',merged_slice_R)
   return(merged_slice_R)
 }
+
+#FUNCTION-universal info
+UniInfo<-function(data, time){
+
+  #truncate the specified time period
+  data <- data[timeslice <= (timeslice[1]+time),]
+
+  data$movements<-rle(data$ifmovement)$values%>%sum
+
+  #reading time
+  data$reading_time<-which(data$ifmovement!=0)[1]*100
+
+  #pausing time
+  data$pausing_time<-nrow(data[ifmovement==0 &distance!=0])*100
+
+  #moving time
+  data$moving_time<-data$reaction_time-data$pausing_time-data$reading_time
+
+  data$distance<-data$distance%>%last
+
+  return(data)
+}
